@@ -47,6 +47,10 @@ Implements a finite state machine (FSM) with the following states:
 | `SPIN_DRY`      | Spins clothes dry until timeout |
 | `ERROR`         | Error mode triggered when door is opened mid-cycle |
 
+### State diagram
+
+![State Diagram](washing_machine_state_diagram.png)
+
 ---
 
 ## 🧪 Testbench Overview
@@ -76,6 +80,10 @@ vlog automatic_washing_machine_v2.v tb_washing_machine_v2.v
 vsim tb_washing_machine_v2
 run -all
 ```
+
+### Simulation Diagram
+
+![Simulation Diagram](1.png)
 
 ## Example Output
 
