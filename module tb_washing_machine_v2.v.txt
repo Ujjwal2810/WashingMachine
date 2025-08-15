@@ -1,0 +1,179 @@
+`timescale 10ns / 1ps
+
+//////////////////////////////////////////////////////////////////
+//   ENHANCED AUTOMATIC WASHING MACHINE CONTROLLER (V2)
+//   Features:
+//   - Three Wash Cycles: Quick, Normal, Heavy
+//   - Water Temperature Control: Cold, Warm, Hot
+//   - Pause/Resume Capability
+//   - Door-Open Error Detection
+//   - Heavy Cycle Includes Double Rinse
+//////////////////////////////////////////////////////////////////
+
+module automatic_washing_machine_v2(
+    // System Inputs
+    input  clk,
+    input  reset,         // Active-high asynchronous reset
+    input  pause,         // Pause/Resume button
+
+    // Sensor & User Inputs
+    input  door_close,    // Door closed sensor
+    input  start,         // Start button
+    input  [1:0] cycle_select, // 00: Quick, 01: Normal, 10: Heavy
+    input  [1:0] temp_select,  // 00: Cold, 01: Warm, 10: Hot
+    input  filled,        // Water filled sensor
+    input  detergent_added, // Detergent sensor
+    input  cycle_timeout, // Wash/rinse cycle complete
+    input  drained,       // Water drained sensor
+    input  spin_timeout,  // Spin complete
+
+    // Outputs to actuators & indicators
+    output reg door_lock,
+    output reg motor_on,
+    output reg cold_valve_on,
+    output reg hot_valve_on,
+    output reg drain_valve_on,
+    output reg error_led,
+    output reg done
+);
+
+    // -------------------- State Encoding --------------------
+    localparam IDLE         = 3'b000;
+    localparam FILL_WATER   = 3'b001;
+    localparam ADD_DETERGENT= 3'b010;
+    localparam WASH_CYCLE   = 3'b011;
+    localparam DRAIN_WATER  = 3'b100;
+    localparam SPIN_DRY     = 3'b101;
+    localparam ERROR        = 3'b111;
+
+    // -------------------- Cycle Types -----------------------
+    localparam CYCLE_QUICK  = 2'b00;
+    localparam CYCLE_NORMAL = 2'b01;
+    localparam CYCLE_HEAVY  = 2'b10;
+
+    // -------------------- Temperature Types -----------------
+    localparam TEMP_COLD = 2'b00;
+    localparam TEMP_WARM = 2'b01;
+    localparam TEMP_HOT  = 2'b10;
+
+    // -------------------- Internal Registers ----------------
+    reg [2:0] current_state, next_state;
+    reg is_rinse_cycle;    // Tracks whether we're rinsing instead of washing
+    reg rinse_counter;     // Tracks rinse count for heavy cycle
+
+    // -------------------- Next-State & Output Logic --------------------
+    always @(*) begin
+        // Default: stay in current state, all actuators off
+        next_state      = current_state;
+        door_lock       = (current_state != IDLE); // Lock when running
+        motor_on        = 0;
+        cold_valve_on   = 0;
+        hot_valve_on    = 0;
+        drain_valve_on  = 0;
+        error_led       = 0;
+        done            = 0;
+
+        // Priority checks
+        if (pause) begin
+            // Pause: just hold state
+            next_state = current_state;
+        end
+        else if (!door_close && current_state != IDLE && current_state != ERROR) begin
+            // If door opens mid-cycle, enter error state
+            next_state = ERROR;
+        end
+        else begin
+            case (current_state)
+
+                // -------------------- Idle --------------------
+                IDLE: begin
+                    if (start && door_close)
+                        next_state = FILL_WATER;
+                end
+
+                // -------------------- Fill Water --------------------
+                FILL_WATER: begin
+                    // Turn on appropriate valve(s)
+                    case (temp_select)
+                        TEMP_COLD: cold_valve_on = !filled;
+                        TEMP_WARM: {hot_valve_on, cold_valve_on} = filled ? 2'b00 : 2'b11;
+                        TEMP_HOT:  hot_valve_on  = !filled;
+                        default:   cold_valve_on = !filled;
+                    endcase
+
+                    // When filled, move on
+                    if (filled) begin
+                        if (!is_rinse_cycle)
+                            next_state = ADD_DETERGENT;
+                        else
+                            next_state = WASH_CYCLE; // Skip detergent in rinse
+                    end
+                end
+
+                // -------------------- Add Detergent --------------------
+                ADD_DETERGENT: begin
+                    if (detergent_added)
+                        next_state = WASH_CYCLE;
+                end
+
+                // -------------------- Wash or Rinse --------------------
+                WASH_CYCLE: begin
+                    motor_on = !cycle_timeout;
+                    if (cycle_timeout)
+                        next_state = DRAIN_WATER;
+                end
+
+                // -------------------- Drain --------------------
+                DRAIN_WATER: begin
+                    drain_valve_on = !drained;
+                    if (drained) begin
+                        if (is_rinse_cycle && (cycle_select != CYCLE_HEAVY || rinse_counter == 1))
+                            next_state = SPIN_DRY; // Done rinsing
+                        else
+                            next_state = FILL_WATER; // Start rinse
+                    end
+                end
+
+                // -------------------- Spin Dry --------------------
+                SPIN_DRY: begin
+                    motor_on = !spin_timeout;
+                    if (spin_timeout) begin
+                        next_state = IDLE;
+                        done = 1;
+                    end
+                end
+
+                // -------------------- Error State --------------------
+                ERROR: begin
+                    error_led = 1;
+                end
+
+                default: next_state = IDLE;
+            endcase
+        end
+    end
+
+    // -------------------- State Update & Rinse Tracking --------------------
+    always @(posedge clk or posedge reset) begin
+        if (reset) begin
+            current_state <= IDLE;
+            is_rinse_cycle <= 0;
+            rinse_counter  <= 0;
+        end
+        else begin
+            current_state <= next_state;
+
+            // Entering rinse cycle after draining
+            if (next_state == FILL_WATER && current_state == DRAIN_WATER) begin
+                is_rinse_cycle <= 1;
+                if (cycle_select == CYCLE_HEAVY && is_rinse_cycle)
+                    rinse_counter <= rinse_counter + 1;
+            end
+            else if (next_state == IDLE) begin
+                is_rinse_cycle <= 0;
+                rinse_counter  <= 0;
+            end
+        end
+    end
+
+endmodule

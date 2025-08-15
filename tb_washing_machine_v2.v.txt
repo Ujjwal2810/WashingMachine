@@ -1,0 +1,107 @@
+module tb_washing_machine_v2;
+
+    // Inputs to the DUT
+    reg clk, reset, pause, door_close, start;
+    reg [1:0] cycle_select, temp_select;
+    reg filled, detergent_added, cycle_timeout, drained, spin_timeout;
+
+    // Outputs from the DUT
+    wire door_lock, motor_on, cold_valve_on, hot_valve_on;
+    wire drain_valve_on, error_led, done;
+
+    // DUT instantiation
+    automatic_washing_machine_v2 dut (
+        .clk(clk), .reset(reset), .pause(pause), .door_close(door_close), .start(start),
+        .cycle_select(cycle_select), .temp_select(temp_select), .filled(filled),
+        .detergent_added(detergent_added), .cycle_timeout(cycle_timeout),
+        .drained(drained), .spin_timeout(spin_timeout),
+        .door_lock(door_lock), .motor_on(motor_on),
+        .cold_valve_on(cold_valve_on), .hot_valve_on(hot_valve_on),
+        .drain_valve_on(drain_valve_on), .error_led(error_led), .done(done)
+    );
+
+    // Clock: 10ns period
+    initial begin
+        clk = 0;
+        forever #5 clk = ~clk;
+    end
+
+    // Test scenarios
+    initial begin
+        $display("--------------------------------------------------");
+        $display("--- Testbench for Washing Machine v2 Started ---");
+        $display("--------------------------------------------------");
+
+        // Initial reset
+        reset = 1; pause = 0; door_close = 0; start = 0;
+        cycle_select = 2'b01; temp_select = 2'b01; // Normal, Warm
+        filled = 0; detergent_added = 0; cycle_timeout = 0;
+        drained = 0; spin_timeout = 0;
+        #20;
+
+        // -------------------- Test 1: Normal Cycle --------------------
+        $display("\n[T=%0t] TEST 1: Normal cycle, warm water", $time);
+        reset = 0; #10;
+        start = 1; door_close = 1; #10 start = 0;
+
+        // Fill water
+        #30 filled = 1; #10 filled = 0;
+        // Add detergent
+        #20 detergent_added = 1; #10 detergent_added = 0;
+        // Wash
+        #50 cycle_timeout = 1; #10 cycle_timeout = 0;
+        // Drain
+        #40 drained = 1; #10 drained = 0;
+        // Rinse
+        #30 filled = 1; #10 filled = 0;
+        #50 cycle_timeout = 1; #10 cycle_timeout = 0;
+        // Drain rinse water
+        #40 drained = 1; #10 drained = 0;
+        // Spin
+        #60 spin_timeout = 1; #10 spin_timeout = 0;
+        $display("[T=%0t] Normal wash complete!", $time);
+
+        // -------------------- Test 2: Heavy Cycle (Double Rinse) --------------------
+        $display("\n[T=%0t] TEST 2: Heavy cycle, hot water", $time);
+        cycle_select = 2'b10; temp_select = 2'b10; // Heavy, Hot
+        start = 1; door_close = 1; #10 start = 0;
+        #30 filled = 1; #10 filled = 0;
+        #20 detergent_added = 1; #10 detergent_added = 0;
+        #80 cycle_timeout = 1; #10 cycle_timeout = 0; // Longer wash
+        #40 drained = 1; #10 drained = 0;
+        $display("[T=%0t] First rinse starting", $time);
+        #30 filled = 1; #10 filled = 0;
+        #50 cycle_timeout = 1; #10 cycle_timeout = 0;
+        #40 drained = 1; #10 drained = 0;
+        $display("[T=%0t] Second rinse starting", $time);
+        #30 filled = 1; #10 filled = 0;
+        #50 cycle_timeout = 1; #10 cycle_timeout = 0;
+        #40 drained = 1; #10 drained = 0;
+        #80 spin_timeout = 1; #10 spin_timeout = 0;
+        $display("[T=%0t] Heavy wash complete!", $time);
+
+        // -------------------- Test 3: Error State --------------------
+        $display("\n[T=%0t] TEST 3: Door opens mid-cycle", $time);
+        cycle_select = 2'b00; temp_select = 2'b00; // Quick, Cold
+        start = 1; door_close = 1; #10 start = 0;
+        #30 filled = 1; #10 filled = 0;
+        #20 detergent_added = 1; #10 detergent_added = 0;
+        #30 door_close = 0; // Open door mid-cycle
+        #20;
+        $display("[T=%0t] Machine in ERROR state, resetting", $time);
+        reset = 1; #20; reset = 0; door_close = 1;
+        $display("[T=%0t] Reset complete, machine idle", $time);
+
+        #50;
+        $display("\n--- All Tests Complete ---");
+        $finish;
+    end
+
+    // Monitor changes
+    initial begin
+        $monitor("T=%0t | State=%d | Start=%b Door=%b Pause=%b | DL=%b M=%b CV=%b HV=%b DV=%b E=%b Done=%b",
+                 $time, dut.current_state, start, door_close, pause,
+                 door_lock, motor_on, cold_valve_on, hot_valve_on, drain_valve_on, error_led, done);
+    end
+
+endmodule
